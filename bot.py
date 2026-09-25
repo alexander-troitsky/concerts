@@ -58,7 +58,7 @@ SEED_ARTISTS = {
     "Brad Mehldau": ["Brad Mehldau", "Mehldau", "Брэд Мелдау", "Мелдау"],
     "illo.trio": ["illo.trio", "illo trio", "illotrio"],
     "Ilugdin Trio": ["Ilugdin", "Илугдин", "Илюгдин"],
-    "Marc Mezquida": ["Marc Mezquida", "Mezquida"],
+    "Marco Mezquida": ["Marco Mezquida", "Mezquida"],
 }
 # (kind, url, artist, zone) — стартовый список; проверяется командой /test
 SEED_SOURCES = [
@@ -79,6 +79,11 @@ SEED_SOURCES = [
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+HEADERS = {
+    "User-Agent": UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8,ru;q=0.7",
+}
 
 # ---------- распознавание ----------
 _M = (r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|ene|abr|ago|dic|gen|"
@@ -211,7 +216,15 @@ def owner():
 
 # ---------- сбор данных ----------
 async def fetch_text(client, url):
-    r = await client.get(url)
+    try:
+        r = await client.get(url)
+    except httpx.ConnectError as e:
+        # у некоторых сайтов неполная цепочка SSL-сертификатов — пробуем без проверки
+        if "CERTIFICATE_VERIFY_FAILED" not in str(e):
+            raise
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True,
+                                     headers=HEADERS, verify=False) as insecure:
+            r = await insecure.get(url)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
     for t in soup(["script", "style", "noscript", "svg"]):
@@ -273,7 +286,7 @@ async def collect():
     hits, errors = [], []
     sem = asyncio.Semaphore(5)
     async with httpx.AsyncClient(timeout=30, follow_redirects=True,
-                                 headers={"User-Agent": UA}) as client:
+                                 headers=HEADERS) as client:
         async def one(src):
             sid, kind, url, a, z = src
             async with sem:
@@ -447,7 +460,7 @@ async def cmd_test(update, ctx):
     await update.message.reply_text("Проверяю источники…")
     lines = []
     async with httpx.AsyncClient(timeout=30, follow_redirects=True,
-                                 headers={"User-Agent": UA}) as client:
+                                 headers=HEADERS) as client:
         for sid, kind, url, a, z in get_sources():
             try:
                 text = await fetch_text(client, url)
